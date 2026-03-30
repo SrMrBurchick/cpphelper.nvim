@@ -47,18 +47,42 @@ function M.get_generator_path()
 	if M.generator_path then
 		return M.generator_path
 	end
+
+	local candidates = {}
+
+	-- 1. Relative to plugin directory (development/local install)
 	local info = debug.getinfo(1, "S")
 	local src = info.source:sub(2)
-	local plugin_dir = src:match("(.*[/\\])helper[/\\]")
-	if plugin_dir then
-		local candidate = plugin_dir .. "generator\\target\\debug\\generator.exe"
-		if vim.fn.executable(candidate) == 1 then
-			M.generator_path = candidate
-			return candidate
+	local plugin_root = src:match("(.*[/\\])lua[/\\]")
+	if plugin_root then
+		table.insert(candidates, plugin_root .. "generator\\target\\debug\\generator.exe")
+	end
+
+	-- 2. XDG data directory
+	table.insert(candidates, vim.fn.stdpath("data") .. "/cpphelper/generator.exe")
+
+	for _, path in ipairs(candidates) do
+		if vim.fn.filereadable(path) == 1 then
+			M.generator_path = path
+			return path
 		end
 	end
-	M.generator_path = "generator"
-	return "generator"
+
+	-- 4. System PATH
+	if vim.fn.executable("generator") == 1 then
+		M.generator_path = "generator"
+		return "generator"
+	end
+
+	vim.notify(
+		"cpphelper: generator binary not found.\n"
+			.. "Either:\n"
+			.. "  1. Build: cd generator && cargo build\n"
+			.. "  2. Set generator_path in setup:\n"
+			.. "     require('cpphelper').setup({ generator_path = '/path/to/generator' })",
+		vim.log.levels.ERROR
+	)
+	return nil
 end
 
 function M.set_generator_path(path)
@@ -66,7 +90,11 @@ function M.set_generator_path(path)
 end
 
 local function run_generator(args)
-	local cmd = vim.list_extend({ M.get_generator_path() }, args)
+	local gen_path = M.get_generator_path()
+	if not gen_path then
+		return false, { "Generator binary not found" }
+	end
+	local cmd = vim.list_extend({ gen_path }, args)
 	local result = { stdout = {}, stderr = {} }
 
 	local job_id = vim.fn.jobstart(cmd, {

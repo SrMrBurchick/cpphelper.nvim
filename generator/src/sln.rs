@@ -218,16 +218,39 @@ pub fn parse_slnx(path: &str) -> Result<Solution, String> {
         }
     }
 
-    // Match <Platform Name="..." />
-    let re_platform = Regex::new(r#"<Platform\s+Name="([^"]*)"[^>]*/?>"#).unwrap();
-    for caps in re_platform.captures_iter(&content) {
+    // Parse solution configurations.
+    // Full format: <SolutionConfiguration Name="Debug|x64" />
+    // Minimal format: <Platform Name="x64" />  → expand to Debug|<platform>, Release|<platform>
+    let re_sln_cfg = Regex::new(r#"<SolutionConfiguration\s+Name="([^"]*)"[^>]*/?>"#).unwrap();
+    let mut has_sln_cfgs = false;
+    for caps in re_sln_cfg.captures_iter(&content) {
         let config = caps[1].to_string();
         if !solution.configurations.contains(&config) {
             solution.configurations.push(config);
         }
+        has_sln_cfgs = true;
     }
 
-    // Match <ProjectConfiguration ...>...</ProjectConfiguration> if present
+    if !has_sln_cfgs {
+        let re_platform = Regex::new(r#"<Platform\s+Name="([^"]*)"[^>]*/?>"#).unwrap();
+        let mut platforms: Vec<String> = Vec::new();
+        for caps in re_platform.captures_iter(&content) {
+            let platform = caps[1].to_string();
+            if !platforms.contains(&platform) {
+                platforms.push(platform);
+            }
+        }
+        for platform in &platforms {
+            for config_name in &["Debug".to_string(), "Release".to_string()] {
+                let full = format!("{}|{}", config_name, platform);
+                if !solution.configurations.contains(&full) {
+                    solution.configurations.push(full);
+                }
+            }
+        }
+    }
+
+    // Parse <ProjectConfiguration ...>...</ProjectConfiguration> if present
     let re_proj_cfg = Regex::new(
         r#"<ProjectConfiguration\s+[^>]*?Project="([^"]*)"[^>]*?Name="([^"]*)"[^>]*>[\s\S]*?</ProjectConfiguration>"#,
     ).unwrap();
@@ -255,6 +278,18 @@ pub fn parse_slnx(path: &str) -> Result<Solution, String> {
                 .entry(config)
                 .or_insert_with(HashMap::new)
                 .insert(guid, proj_cfg);
+        }
+    }
+
+    // If no explicit ProjectConfiguration entries exist, create a default mapping
+    // where each solution config maps to the same config name on every project.
+    if solution.config_map.is_empty() {
+        for sln_cfg in &solution.configurations {
+            let mut guid_map: HashMap<String, String> = HashMap::new();
+            for (guid, _) in &solution.projects {
+                guid_map.insert(guid.clone(), sln_cfg.clone());
+            }
+            solution.config_map.insert(sln_cfg.clone(), guid_map);
         }
     }
 

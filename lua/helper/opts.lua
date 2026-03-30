@@ -1,7 +1,7 @@
 local M = {}
 
 M = {
-	generator_path = "D:\\Tools\\generator\\target\\debug\\generator.exe",
+	generator_path = nil,
 }
 
 return M
