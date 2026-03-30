@@ -17,7 +17,7 @@ local function read_config(config)
 		return nil
 	end
 	local content = f:read("*a")
-	f.close()
+	f:close()
 	return vim.fn.json_decode(content)
 end
 
